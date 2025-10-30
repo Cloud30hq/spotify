@@ -1,3 +1,12 @@
 {
   "version": 2
 }
+
+{
+  "crons": [
+    {
+      "path": "/api/spotify/refresh",
+      "schedule": "0 * * * *"
+    }
+  ]
+}
