@@ -1,72 +1,53 @@
-// api/spotify.js
-//
-// This endpoint lets you perform Spotify actions (play, pause, get playlists, etc.)
-// using the access_token you got from the OAuth callback.
-//
-// ⚠️ IMPORTANT: For now, paste your working access_token temporarily to test.
-// Later we’ll store and refresh it automatically.
-
-const ACCESS_TOKEN = "PASTE_YOUR_ACCESS_TOKEN_HERE"; // Replace this with your current access_token
+import fetch from "node-fetch";
 
 export default async function handler(req, res) {
-  const { action, trackUri } = req.query; // action = 'play', 'pause', etc.
+  const { action, trackUri } = req.query;
+  
+  // Stored tokens
+  let access_token = process.env.SPOTIFY_ACCESS_TOKEN;
+  const refresh_token = process.env.SPOTIFY_REFRESH_TOKEN;
 
-  try {
-    let url = "";
-    let method = "";
+  // Try Spotify call
+  let response = await fetch("https://api.spotify.com/v1/me/player/play", {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${access_token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ uris: [trackUri] }),
+  });
 
-    // 🔹 Define actions you can perform
-    switch (action) {
-      case "play":
-        url = "https://api.spotify.com/v1/me/player/play";
-        method = "PUT";
-        break;
+  // If token expired
+  if (response.status === 401) {
+    console.log("Access token expired, refreshing...");
 
-      case "pause":
-        url = "https://api.spotify.com/v1/me/player/pause";
-        method = "PUT";
-        break;
-
-      case "next":
-        url = "https://api.spotify.com/v1/me/player/next";
-        method = "POST";
-        break;
-
-      case "previous":
-        url = "https://api.spotify.com/v1/me/player/previous";
-        method = "POST";
-        break;
-
-      case "profile":
-        url = "https://api.spotify.com/v1/me";
-        method = "GET";
-        break;
-
-      default:
-        return res.status(400).json({ error: "Invalid or missing action" });
-    }
-
-    const response = await fetch(url, {
-      method,
+    // Refresh the token
+    const refreshResponse = await fetch("https://accounts.spotify.com/api/token", {
+      method: "POST",
       headers: {
-        "Authorization": `Bearer ${ACCESS_TOKEN}`,
-        "Content-Type": "application/json",
+        Authorization: "Basic " + Buffer.from(`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString("base64"),
+        "Content-Type": "application/x-www-form-urlencoded",
       },
-      body:
-        action === "play" && trackUri
-          ? JSON.stringify({ uris: [trackUri] }) // Optional: play a specific song
-          : undefined,
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token,
+      }),
     });
 
-    if (response.status === 204) {
-      return res.status(200).json({ message: `${action} executed successfully` });
-    }
+    const newTokens = await refreshResponse.json();
+    access_token = newTokens.access_token;
 
-    const data = await response.json();
-    return res.status(response.ok ? 200 : response.status).json(data);
-
-  } catch (error) {
-    console.error("Spotify API error:", error);
-    return res.status(500).json({ error: "Failed to perform Spotify action" });
+    // Retry Spotify request with new token
+    response = await fetch("https://api.spotify.com/v1/me/player/play", {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ uris: [trackUri] }),
+    });
   }
+
+  const data = await response.json();
+  res.status(response.status).json(data);
 }
